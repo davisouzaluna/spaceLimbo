@@ -1,0 +1,2 @@
+discord.py[voice]>=2.7   # inclui PyNaCl e davey (criptografia DAVE da voz)
+yt-dlp                   # busca e extrai o áudio
