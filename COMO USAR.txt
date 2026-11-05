@@ -1,0 +1,24 @@
+﻿COMO USAR O spaceLimbo
+=====================
+
+PARA LIGAR O BOT (só quem hospeda precisa fazer isso)
+  1. Dê dois cliques em INICIAR.bat
+  2. Na primeira vez, siga as perguntas da janela preta (leva uns 5 minutos).
+  3. Deixe a janela aberta. Fechou a janela = bot desligado.
+
+Se aparecer "O Windows protegeu o computador":
+  clique em "Mais informações" e depois em "Executar assim mesmo".
+
+PARA OS AMIGOS (não precisam instalar nada)
+  - No Discord, entrem num canal de voz e digitem /play nome da música
+  - Para o painel: abram o link que aparece na janela preta (quem liga o bot manda para vocês).
+    Funciona no PC e no celular.
+
+COMANDOS ÚTEIS NO DISCORD
+  /play   /skip   /pause   /resume   /queue   /volume   /loop   /shuffle
+  /playlist tocar   /painel
+
+PROBLEMAS?
+  - Música não toca: feche e abra o INICIAR.bat de novo (ele atualiza o leitor do YouTube).
+  - "Token recusado": abra o CONFIGURAR.bat e cole um token novo.
+  - Link dos amigos parou: o link muda toda vez que o bot liga. Mande o novo.
