@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from typing import Literal
 
@@ -14,7 +15,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import config
-from player import PlayerManager, fmt_duration, search
+import database
+from player import PlayerManager, Track, fmt_duration, search
 
 log = logging.getLogger("spacelimbo")
 
@@ -37,6 +39,15 @@ class SpaceLimbo(commands.Bot):
     async def on_ready(self) -> None:
         log.info("Conectado como %s (%s servidores)", self.user, len(self.guilds))
         await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/play"))
+
+
+async def playlist_names(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    current = current.lower()
+    return [
+        app_commands.Choice(name=p["name"], value=p["name"])
+        for p in database.list_playlists()
+        if current in p["name"].lower()
+    ][:25]
 
 
 def simple_embed(text: str) -> discord.Embed:
@@ -180,6 +191,78 @@ class Music(commands.Cog):
         t = p.remove(posicao - 1)
         await interaction.response.send_message(embed=simple_embed(f"🗑️ Removida: **{t.title}**"))
 
+    # ------------------------------------------------------------ playlists
+
+    playlist = app_commands.Group(name="playlist", description="Playlists salvas do spaceLimbo")
+
+    @playlist.command(name="tocar", description="Coloca uma playlist salva na fila")
+    @app_commands.autocomplete(nome=playlist_names)
+    async def pl_tocar(self, interaction: discord.Interaction, nome: str, embaralhar: bool = False):
+        await interaction.response.defer(thinking=True)
+        pl = database.get_playlist_by_name(nome)
+        if not pl:
+            await interaction.followup.send(embed=simple_embed("Playlist não encontrada."))
+            return
+        rows = database.get_tracks(pl["id"])
+        if not rows:
+            await interaction.followup.send(embed=simple_embed("Essa playlist está vazia."))
+            return
+        if not await self.ensure_voice(interaction):
+            return
+        tracks = [Track.from_dict(r, interaction.user.display_name) for r in rows]
+        if embaralhar:
+            random.shuffle(tracks)
+        p = self.player(interaction)
+        p.add(tracks)
+        await interaction.followup.send(embed=simple_embed(f"📀 **{pl['name']}** — {len(tracks)} músicas na fila."))
+        await p.start_if_idle()
+
+    @playlist.command(name="listar", description="Lista as playlists salvas")
+    async def pl_listar(self, interaction: discord.Interaction):
+        pls = database.list_playlists()
+        text = "\n".join(f"• **{p['name']}** — {p['count']} músicas ({fmt_duration(p['duration'])})" for p in pls)
+        await interaction.response.send_message(embed=simple_embed(text or "Nenhuma playlist ainda. Crie pelo painel!"))
+
+    @playlist.command(name="criar", description="Cria uma playlist vazia")
+    async def pl_criar(self, interaction: discord.Interaction, nome: str):
+        try:
+            database.create_playlist(nome)
+        except ValueError as exc:
+            await interaction.response.send_message(embed=simple_embed(str(exc)), ephemeral=True)
+            return
+        await interaction.response.send_message(embed=simple_embed(f"✨ Playlist **{nome}** criada."))
+
+    @playlist.command(name="adicionar", description="Adiciona uma música (ou playlist do YouTube) a uma playlist")
+    @app_commands.autocomplete(nome=playlist_names)
+    async def pl_adicionar(self, interaction: discord.Interaction, nome: str, busca: str):
+        await interaction.response.defer(thinking=True)
+        pl = database.get_playlist_by_name(nome)
+        if not pl:
+            await interaction.followup.send(embed=simple_embed("Playlist não encontrada."))
+            return
+        tracks = await search(busca)
+        if not tracks:
+            await interaction.followup.send(embed=simple_embed("Nada encontrado."))
+            return
+        database.add_tracks(pl["id"], [t.to_dict() for t in tracks])
+        what = f"**{tracks[0].title}**" if len(tracks) == 1 else f"{len(tracks)} músicas"
+        await interaction.followup.send(embed=simple_embed(f"➕ {what} → **{pl['name']}**"))
+
+    @playlist.command(name="salvar_fila", description="Salva a música atual + fila como uma nova playlist")
+    async def pl_salvar_fila(self, interaction: discord.Interaction, nome: str):
+        p = self.player(interaction)
+        tracks = ([p.current] if p.current else []) + p.queue
+        if not tracks:
+            await interaction.response.send_message(embed=simple_embed("A fila está vazia."), ephemeral=True)
+            return
+        try:
+            pl = database.create_playlist(nome)
+        except ValueError as exc:
+            await interaction.response.send_message(embed=simple_embed(str(exc)), ephemeral=True)
+            return
+        database.add_tracks(pl["id"], [t.to_dict() for t in tracks])
+        await interaction.response.send_message(embed=simple_embed(f"💾 Fila salva como **{nome}** ({len(tracks)} músicas)."))
+
     # ------------------------------------------------------------ manutenção
 
     @tasks.loop(seconds=60)
@@ -206,6 +289,7 @@ async def main() -> None:
     discord.utils.setup_logging(level=logging.INFO)
     if not config.TOKEN:
         raise SystemExit("Defina DISCORD_TOKEN no arquivo .env (veja .env.example).")
+    database.init()
     async with SpaceLimbo() as bot:
         await bot.start(config.TOKEN)
 
