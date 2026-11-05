@@ -3,6 +3,7 @@
 Lê o arquivo .env sem precisar de python-dotenv (menos uma dependência).
 """
 import os
+import shutil
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -33,8 +34,22 @@ PANEL_PORT = int(os.environ.get("PANEL_PORT", "8080"))
 PANEL_TOKEN = os.environ.get("PANEL_TOKEN", "")  # senha do painel; vazio = sem senha (só use localmente!)
 PANEL_URL = os.environ.get("PANEL_URL", f"http://{PANEL_HOST}:{PANEL_PORT}")
 
+
+def _find_ffmpeg() -> str:
+    """FFMPEG_PATH do .env → ffmpeg instalado no sistema → ffmpeg embutido do pacote imageio-ffmpeg."""
+    if os.environ.get("FFMPEG_PATH"):
+        return os.environ["FFMPEG_PATH"]
+    if shutil.which("ffmpeg"):
+        return "ffmpeg"
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
 # Áudio
-FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
+FFMPEG_PATH = _find_ffmpeg()
 DEFAULT_VOLUME = float(os.environ.get("DEFAULT_VOLUME", "0.5"))  # 0.0 a 1.5
 IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", "300"))  # segundos parado antes de sair do canal
 

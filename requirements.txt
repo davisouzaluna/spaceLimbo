@@ -1,2 +1,3 @@
 discord.py[voice]>=2.7   # inclui aiohttp (painel), PyNaCl e davey (criptografia DAVE da voz)
 yt-dlp                   # busca e extrai o áudio
+imageio-ffmpeg           # traz o FFmpeg embutido: ninguém precisa instalar FFmpeg à mão
