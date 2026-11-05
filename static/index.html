@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spaceLimbo · Painel</title>
+<style>
+  :root {
+    --bg: #07060f;
+    --panel: #12101f;
+    --panel-2: #1a1730;
+    --line: #2a2546;
+    --text: #ece9ff;
+    --muted: #8f88b5;
+    --accent: #7b5cff;
+    --accent-2: #3fd1ff;
+    --danger: #ff5c7a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1px 1px at 20% 30%, #fff8 50%, transparent 51%),
+      radial-gradient(1px 1px at 70% 80%, #fff6 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 85% 15%, #fff9 50%, transparent 51%),
+      radial-gradient(1px 1px at 40% 65%, #fff5 50%, transparent 51%),
+      radial-gradient(900px 500px at 90% -10%, #3a1f8a55, transparent),
+      radial-gradient(700px 500px at -10% 110%, #0f5a8a44, transparent),
+      var(--bg);
+    background-attachment: fixed;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 12px; cursor: pointer; transition: .15s;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.ghost { background: transparent; border-color: transparent; padding: 6px 8px; color: var(--muted); }
+  button.ghost:hover { color: var(--text); background: var(--panel-2); }
+  button.active { color: var(--accent-2); border-color: var(--accent-2); }
+  input, select {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  .app { display: grid; grid-template-columns: 290px 1fr; min-height: 100vh; }
+  aside {
+    background: #0c0a18cc; border-right: 1px solid var(--line); padding: 20px 16px;
+    display: flex; flex-direction: column; gap: 18px; backdrop-filter: blur(6px);
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 22px; letter-spacing: -.5px; }
+  .logo .orb {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, var(--accent-2), var(--accent) 55%, #1b0f45);
+    box-shadow: 0 0 22px #7b5cff88;
+  }
+  .logo span { color: var(--accent-2); }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 6px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .grow { flex: 1; min-width: 0; }
+  .pl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
+  .pl-list li {
+    padding: 10px 12px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px;
+  }
+  .pl-list li:hover { background: var(--panel-2); }
+  .pl-list li.sel { background: linear-gradient(90deg, #7b5cff33, transparent); border-left: 3px solid var(--accent); }
+  .pl-list small { color: var(--muted); }
+
+  main { padding: 22px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .card { background: #12101fdd; border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card h2 small { color: var(--muted); font-weight: 400; }
+
+  .np { display: grid; grid-template-columns: 150px 1fr; gap: 20px; align-items: center; }
+  .np .art {
+    width: 150px; aspect-ratio: 1; border-radius: 12px; background: var(--panel-2) center/cover;
+    box-shadow: 0 10px 40px #7b5cff44;
+  }
+  .np .title { font-size: 22px; font-weight: 700; margin: 0 0 4px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .np .sub { color: var(--muted); margin-bottom: 14px; }
+  .bar { height: 6px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .4s linear; }
+  .times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+  .controls .big { width: 46px; height: 46px; border-radius: 50%; font-size: 18px; }
+  .vol { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--muted); }
+  .vol input { width: 130px; padding: 0; accent-color: var(--accent); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .tracks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 460px; overflow: auto; }
+  .tracks li {
+    display: grid; grid-template-columns: 26px 44px 1fr auto auto; gap: 10px; align-items: center;
+    padding: 6px 8px; border-radius: 10px; border: 1px solid transparent;
+  }
+  .tracks li:hover { background: var(--panel-2); }
+  .tracks li.over { border-color: var(--accent); }
+  .tracks li.dragging { opacity: .4; }
+  .tracks li[draggable] { cursor: grab; }
+  .tracks .n { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+  .tracks .th { width: 44px; height: 44px; border-radius: 8px; background: var(--panel-2) center/cover; }
+  .tracks .t { overflow: hidden; }
+  .tracks .t b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tracks .t small { color: var(--muted); }
+  .tracks .d { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .tracks .acts { display: flex; gap: 2px; }
+  .empty, .tracks li.empty { display: block; color: var(--muted); text-align: center; padding: 24px 8px; }
+  .results li { grid-template-columns: 44px 1fr auto auto; }
+
+  .status { font-size: 13px; color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+  .dot.on { background: #3ee08f; box-shadow: 0 0 8px #3ee08f; }
+
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(120px);
+    background: var(--panel-2); border: 1px solid var(--line); padding: 12px 18px; border-radius: 12px;
+    transition: .25s; max-width: calc(100% - 32px); z-index: 9;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.err { border-color: var(--danger); }
+
+  @media (max-width: 960px) {
+    .app { grid-template-columns: 1fr; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); }
+    .grid2 { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    main { padding: 16px; }
+    .np { grid-template-columns: 1fr; }
+    .np .art { width: 100%; max-width: 240px; margin: 0 auto; }
+    .vol { margin-left: 0; width: 100%; }
+    .vol input { flex: 1; }
+    .tracks li { grid-template-columns: 22px 40px 1fr auto; }
+    .tracks .d { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="logo"><div class="orb"></div><div>space<span>Limbo</span></div></div>
+
+    <div>
+      <div class="label">Servidor</div>
+      <select id="guild"></select>
+    </div>
+    <div>
+      <div class="label">Canal de voz</div>
+      <div class="row">
+        <select id="voice" class="grow"></select>
+        <button id="join" title="Entrar no canal">Entrar</button>
+      </div>
+      <div class="status" style="margin-top:8px"><span id="dot" class="dot"></span><span id="conn">Desconectado</span></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;min-height:0;flex:1">
+      <div class="row" style="justify-content:space-between">
+        <div class="label" style="margin:0">Playlists</div>
+        <button class="ghost" id="newPl" title="Nova playlist">＋ Nova</button>
+      </div>
+      <ul class="pl-list" id="plList"></ul>
+    </div>
+  </aside>
+
+  <main>
+    <section class="card">
+      <div class="np">
+        <div class="art" id="npArt"></div>
+        <div style="min-width:0">
+          <div class="label">Tocando agora</div>
+          <p class="title" id="npTitle">Nada tocando</p>
+          <div class="sub" id="npSub">Use /play no Discord ou adicione músicas por aqui.</div>
+          <div class="bar"><div id="npBar"></div></div>
+          <div class="times"><span id="npPos">0:00</span><span id="npDur">0:00</span></div>
+          <div class="controls">
+            <button id="bShuffle" title="Embaralhar fila">🔀</button>
+            <button id="bPlay" class="big primary" title="Pausar/continuar">▶</button>
+            <button id="bSkip" class="big" title="Pular">⏭</button>
+            <button id="bStop" title="Parar e limpar fila">⏹</button>
+            <button id="bLoop" title="Loop">🔁 off</button>
+            <button id="bLeave" class="ghost" title="Sair do canal">Sair</button>
+            <label class="vol">🔊 <input type="range" id="vol" min="0" max="150" value="50"><span id="volV">50%</span></label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Buscar músicas</h2>
+      <form id="searchForm" class="row">
+        <input id="q" class="grow" placeholder="Nome da música ou link (YouTube, SoundCloud…)" autocomplete="off">
+        <button class="primary">Buscar</button>
+      </form>
+      <ul class="tracks results" id="results" style="margin-top:10px"></ul>
+    </section>
+
+    <div class="grid2">
+      <section class="card">
+        <h2>Fila <small id="qInfo"></small>
+          <button class="ghost" id="bClear" title="Limpar fila">Limpar</button>
+        </h2>
+        <ul class="tracks" id="queue"></ul>
+      </section>
+
+      <section class="card" id="plCard">
+        <h2><span id="plName">Selecione uma playlist</span> <small id="plInfo"></small></h2>
+        <div class="row" id="plActions" style="flex-wrap:wrap;margin-bottom:12px;display:none">
+          <button class="primary" id="plPlay">▶ Tocar</button>
+          <button id="plShuffle">🔀 Tocar embaralhada</button>
+          <button id="plSaveQueue" title="Adicionar a fila atual a esta playlist">＋ Fila atual</button>
+          <button class="ghost" id="plRename">Renomear</button>
+          <button class="ghost" id="plDelete" style="color:var(--danger)">Excluir</button>
+        </div>
+        <ul class="tracks" id="plTracks"><li class="empty">Crie ou escolha uma playlist na barra lateral.</li></ul>
+      </section>
+    </div>
+  </main>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (s) => {
+  s = Math.max(0, Math.floor(s || 0));
+  if (!s) return "0:00";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+};
+
+let TOKEN = localStorage.getItem("sl_token") || "";
+let guilds = [], guildId = localStorage.getItem("sl_guild") || "";
+let state = null, stateAt = 0, lastQueueJson = "";
+let playlists = [], selPl = null, plTracks = [];
+
+function toast(msg, err = false) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "show" + (err ? " err" : "");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => (t.className = ""), 3200);
+}
+
+async function api(path, { method = "GET", body } = {}) {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json", "X-Panel-Token": TOKEN },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) {
+    const t = prompt("Senha do painel (PANEL_TOKEN do .env):");
+    if (t === null) throw new Error("Sem token do painel.");
+    TOKEN = t;
+    localStorage.setItem("sl_token", t);
+    return api(path, { method, body });
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+const safe = (fn) => async (...a) => { try { return await fn(...a); } catch (e) { toast(e.message, true); } };
+
+/* ---------------- servidores ---------------- */
+async function loadGuilds() {
+  guilds = await api("/api/guilds");
+  if (!guilds.find((g) => g.id === guildId)) guildId = guilds[0]?.id || "";
+  $("#guild").innerHTML = guilds.length
+    ? guilds.map((g) => `<option value="${g.id}" ${g.id === guildId ? "selected" : ""}>${esc(g.name)}</option>`).join("")
+    : `<option>Bot não está em nenhum servidor</option>`;
+  renderVoice();
+}
+function renderVoice() {
+  const g = guilds.find((x) => x.id === guildId);
+  const chans = g?.voice_channels || [];
+  const keep = $("#voice").value;
+  $("#voice").innerHTML = chans.map((c) => `<option value="${c.id}">🔊 ${esc(c.name)}</option>`).join("") || `<option value="">—</option>`;
+  if (state?.channel) $("#voice").value = state.channel.id;
+  else if (chans.find((c) => c.id === keep)) $("#voice").value = keep;
+}
+$("#guild").onchange = (e) => {
+  guildId = e.target.value;
+  localStorage.setItem("sl_guild", guildId);
+  lastQueueJson = "";
+  renderVoice();
+  refresh();
+};
+
+/* ---------------- estado / player ---------------- */
+async function refresh() {
+  if (!guildId) return;
+  try {
+    state = await api(`/api/guilds/${guildId}/state`);
+    stateAt = Date.now();
+    renderState();
+  } catch (e) { /* silencioso no polling */ }
+}
+async function act(action, body = {}) {
+  if (!guildId) return toast("Escolha um servidor.", true);
+  body.channel_id ??= $("#voice").value || undefined;
+  state = await api(`/api/guilds/${guildId}/player/${action}`, { method: "POST", body });
+  stateAt = Date.now();
+  renderState();
+  return state;
+}
+
+function renderState() {
+  const s = state;
+  if (!s) return;
+  $("#dot").className = "dot" + (s.connected ? " on" : "");
+  $("#conn").textContent = s.connected ? `Conectado em ${s.channel.name}` : "Desconectado";
+  if (s.channel && document.activeElement !== $("#voice")) $("#voice").value = s.channel.id;
+
+  const c = s.current;
+  $("#npTitle").textContent = c ? c.title : "Nada tocando";
+  $("#npSub").innerHTML = c ? `Pedido por ${esc(c.requester || "—")} · <a href="${esc(c.url)}" target="_blank" style="color:var(--accent-2)">abrir link</a>` : "Use /play no Discord ou adicione músicas por aqui.";
+  $("#npArt").style.backgroundImage = c?.thumbnail ? `url("${c.thumbnail}")` : "";
+  $("#npDur").textContent = c ? (c.duration ? fmt(c.duration) : "ao vivo") : "0:00";
+  $("#bPlay").textContent = s.paused || !c ? "▶" : "⏸";
+  $("#bLoop").textContent = { off: "🔁 off", track: "🔂 música", queue: "🔁 fila" }[s.loop];
+  $("#bLoop").classList.toggle("active", s.loop !== "off");
+  if (document.activeElement !== $("#vol")) { $("#vol").value = s.volume; $("#volV").textContent = s.volume + "%"; }
+  tick();
+
+  const qJson = JSON.stringify(s.queue);
+  if (qJson !== lastQueueJson) { lastQueueJson = qJson; renderQueue(); }
+}
+
+function tick() {
+  const s = state, c = s?.current;
+  if (!c) { $("#npBar").style.width = "0"; $("#npPos").textContent = "0:00"; return; }
+  let pos = s.position + (s.paused ? 0 : (Date.now() - stateAt) / 1000);
+  if (c.duration) pos = Math.min(pos, c.duration);
+  $("#npPos").textContent = fmt(pos);
+  $("#npBar").style.width = c.duration ? (100 * pos / c.duration).toFixed(2) + "%" : "100%";
+}
+
+function renderQueue() {
+  const q = state.queue;
+  const total = q.reduce((a, t) => a + (t.duration || 0), 0);
+  $("#qInfo").textContent = q.length ? `${q.length} · ${fmt(total)}` : "";
+  const ul = $("#queue");
+  if (!q.length) { ul.innerHTML = `<li class="empty">A fila está vazia.</li>`; return; }
+  ul.innerHTML = q.map((t, i) => `
+    <li draggable="true">
+      <span class="n">${i + 1}</span>
+      <div class="th" style="background-image:url('${esc(t.thumbnail)}')"></div>
+      <div class="t"><b title="${esc(t.title)}">${esc(t.title)}</b><small>${esc(t.requester || "")}</small></div>
+      <span class="d">${t.duration ? fmt(t.duration) : "—"}</span>
+      <div class="acts">
+        <button class="ghost" data-save="${i}" title="Salvar na playlist selecionada">＋</button>
+        <button class="ghost" data-rm="${i}" title="Remover">✕</button>
+      </div>
+    </li>`).join("");
+  ul.querySelectorAll("[data-rm]").forEach((b) => b.onclick = safe(() => act("remove", { index: +b.dataset.rm })));
+  ul.querySelectorAll("[data-save]").forEach((b) => b.onclick = safe(() => addToPlaylist(state.queue[+b.dataset.save])));
+  sortable(ul, safe((from, to) => act("move", { from, to })));
+}
+
+function sortable(ul, onMove) {
+  let from = null;
+  [...ul.children].forEach((li, i) => {
+    if (!li.draggable) return;
+    li.addEventListener("dragstart", (e) => { from = i; li.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; });
+    li.addEventListener("dragend", () => li.classList.remove("dragging"));
+    li.addEventListener("dragover", (e) => { e.preventDefault(); li.classList.add("over"); });
+    li.addEventListener("dragleave", () => li.classList.remove("over"));
+    li.addEventListener("drop", (e) => {
+      e.preventDefault(); li.classList.remove("over");
+      if (from !== null && from !== i) onMove(from, i);
+      from = null;
+    });
+  });
+}
+
+$("#join").onclick = safe(async () => { await act("join"); toast("Entrei no canal 🚀"); });
+$("#bLeave").onclick = safe(() => act("leave"));
+$("#bPlay").onclick = safe(() => act(state?.paused ? "resume" : "pause"));
+$("#bSkip").onclick = safe(() => act("skip"));
+$("#bStop").onclick = safe(() => act("stop"));
+$("#bShuffle").onclick = safe(async () => { await act("shuffle"); toast("Fila embaralhada"); });
+$("#bClear").onclick = safe(() => act("clear"));
+$("#bLoop").onclick = safe(() => {
+  const next = { off: "queue", queue: "track", track: "off" }[state?.loop || "off"];
+  return act("loop", { mode: next });
+});
+$("#vol").oninput = (e) => ($("#volV").textContent = e.target.value + "%");
+$("#vol").onchange = safe((e) => act("volume", { value: +e.target.value }));
+
+/* ---------------- busca ---------------- */
+let results = [];
+$("#searchForm").onsubmit = safe(async (e) => {
+  e.preventDefault();
+  const q = $("#q").value.trim();
+  if (!q) return;
+  $("#results").innerHTML = `<li class="empty">Procurando nas estrelas…</li>`;
+  results = await api(`/api/search?q=${encodeURIComponent(q)}`).catch((err) => { $("#results").innerHTML = ""; throw err; });
+  $("#results").innerHTML = results.length ? results.map((t, i) => `
+    <li>
+      <div class="th" style="background-image:url('${esc(t.thumbnail)}')"></div>
+      <div class="t"><b title="${esc(t.title)}">${esc(t.title)}</b><small>${t.duration ? fmt(t.duration) : ""}</small></div>
+      <span></span>
+      <div class="acts">
+        <button class="ghost" data-q="${i}" title="Adicionar à fila">＋ Fila</button>
+        <button class="ghost" data-n="${i}" title="Tocar a seguir">⤒ Próxima</button>
+        <button class="ghost" data-p="${i}" title="Salvar na playlist selecionada">♥ Playlist</button>
+      </div>
+    </li>`).join("") : `<li class="empty">Nada encontrado.</li>`;
+  $("#results").querySelectorAll("[data-q]").forEach((b) => b.onclick = safe(async () => { await act("play", { track: results[+b.dataset.q] }); toast("Adicionada à fila"); }));
+  $("#results").querySelectorAll("[data-n]").forEach((b) => b.onclick = safe(async () => { await act("play", { track: results[+b.dataset.n], next: true }); toast("Toca a seguir"); }));
+  $("#results").querySelectorAll("[data-p]").forEach((b) => b.onclick = safe(() => addToPlaylist(results[+b.dataset.p])));
+});
+
+/* ---------------- playlists ---------------- */
+async function loadPlaylists() {
+  playlists = await api("/api/playlists");
+  $("#plList").innerHTML = playlists.length ? playlists.map((p) => `
+    <li data-id="${p.id}" class="${selPl?.id === p.id ? "sel" : ""}">
+      <span class="grow" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</span>
+      <small>${p.count}</small>
+    </li>`).join("") : `<li class="empty" style="cursor:default">Nenhuma playlist ainda.</li>`;
+  $("#plList").querySelectorAll("li[data-id]").forEach((li) => li.onclick = safe(() => openPlaylist(+li.dataset.id)));
+}
+
+async function openPlaylist(id) {
+  const data = await api(`/api/playlists/${id}/tracks`);
+  selPl = { id: data.id, name: data.name };
+  plTracks = data.tracks;
+  renderPlaylist();
+  loadPlaylists();
+}
+
+function renderPlaylist() {
+  $("#plActions").style.display = selPl ? "flex" : "none";
+  if (!selPl) {
+    $("#plName").textContent = "Selecione uma playlist";
+    $("#plInfo").textContent = "";
+    $("#plTracks").innerHTML = `<li class="empty">Crie ou escolha uma playlist na barra lateral.</li>`;
+    return;
+  }
+  $("#plName").textContent = selPl.name;
+  const total = plTracks.reduce((a, t) => a + (t.duration || 0), 0);
+  $("#plInfo").textContent = `${plTracks.length} · ${fmt(total)}`;
+  const ul = $("#plTracks");
+  if (!plTracks.length) { ul.innerHTML = `<li class="empty">Vazia. Busque músicas acima e clique em ♥ Playlist.</li>`; return; }
+  ul.innerHTML = plTracks.map((t, i) => `
+    <li draggable="true">
+      <span class="n">${i + 1}</span>
+      <div class="th" style="background-image:url('${esc(t.thumbnail)}')"></div>
+      <div class="t"><b title="${esc(t.title)}">${esc(t.title)}</b></div>
+      <span class="d">${t.duration ? fmt(t.duration) : "—"}</span>
+      <div class="acts">
+        <button class="ghost" data-q="${i}" title="Adicionar à fila">＋</button>
+        <button class="ghost" data-rm="${t.id}" title="Remover da playlist">✕</button>
+      </div>
+    </li>`).join("");
+  ul.querySelectorAll("[data-q]").forEach((b) => b.onclick = safe(async () => { await act("play", { track: plTracks[+b.dataset.q] }); toast("Adicionada à fila"); }));
+  ul.querySelectorAll("[data-rm]").forEach((b) => b.onclick = safe(async () => {
+    await api(`/api/tracks/${b.dataset.rm}`, { method: "DELETE" });
+    await openPlaylist(selPl.id);
+  }));
+  sortable(ul, safe(async (from, to) => {
+    const ids = plTracks.map((t) => t.id);
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    plTracks = (await api(`/api/playlists/${selPl.id}/order`, { method: "PUT", body: { ids } })).tracks;
+    renderPlaylist();
+  }));
+}
+
+async function addToPlaylist(track) {
+  if (!selPl) return toast("Selecione uma playlist na barra lateral primeiro.", true);
+  const r = await api(`/api/playlists/${selPl.id}/tracks`, { method: "POST", body: { track } });
+  plTracks = r.tracks;
+  renderPlaylist();
+  loadPlaylists();
+  toast(`Salva em ${selPl.name}`);
+}
+
+$("#newPl").onclick = safe(async () => {
+  const name = prompt("Nome da nova playlist:");
+  if (!name) return;
+  const pl = await api("/api/playlists", { method: "POST", body: { name } });
+  await openPlaylist(pl.id);
+});
+$("#plRename").onclick = safe(async () => {
+  const name = prompt("Novo nome:", selPl.name);
+  if (!name) return;
+  await api(`/api/playlists/${selPl.id}`, { method: "PATCH", body: { name } });
+  await openPlaylist(selPl.id);
+});
+$("#plDelete").onclick = safe(async () => {
+  if (!confirm(`Excluir a playlist “${selPl.name}”?`)) return;
+  await api(`/api/playlists/${selPl.id}`, { method: "DELETE" });
+  selPl = null; plTracks = [];
+  renderPlaylist();
+  loadPlaylists();
+});
+$("#plPlay").onclick = safe(async () => { await act("play", { playlist_id: selPl.id }); toast(`Tocando ${selPl.name}`); });
+$("#plShuffle").onclick = safe(async () => { await act("play", { playlist_id: selPl.id, shuffle: true }); toast(`Tocando ${selPl.name} (embaralhada)`); });
+$("#plSaveQueue").onclick = safe(async () => {
+  const all = [state?.current, ...(state?.queue || [])].filter(Boolean);
+  if (!all.length) return toast("A fila está vazia.", true);
+  for (const t of all) await api(`/api/playlists/${selPl.id}/tracks`, { method: "POST", body: { track: t } });
+  await openPlaylist(selPl.id);
+  toast(`${all.length} músicas salvas`);
+});
+
+/* ---------------- início ---------------- */
+(async () => {
+  await safe(loadGuilds)();
+  await safe(loadPlaylists)();
+  await refresh();
+  setInterval(refresh, 2000);
+  setInterval(tick, 500);
+  setInterval(safe(loadGuilds), 60000);
+})();
+</script>
+</body>
+</html>
