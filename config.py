@@ -27,6 +27,12 @@ TOKEN = os.environ.get("DISCORD_TOKEN", "")
 # Se definido, os comandos slash são sincronizados só neste servidor (aparecem na hora).
 DEV_GUILD_ID = int(os.environ.get("DEV_GUILD_ID", "0") or 0)
 
+# Painel web
+PANEL_HOST = os.environ.get("PANEL_HOST", "127.0.0.1")
+PANEL_PORT = int(os.environ.get("PANEL_PORT", "8080"))
+PANEL_TOKEN = os.environ.get("PANEL_TOKEN", "")  # senha do painel; vazio = sem senha (só use localmente!)
+PANEL_URL = os.environ.get("PANEL_URL", f"http://{PANEL_HOST}:{PANEL_PORT}")
+
 # Áudio
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 DEFAULT_VOLUME = float(os.environ.get("DEFAULT_VOLUME", "0.5"))  # 0.0 a 1.5
