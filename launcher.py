@@ -3,9 +3,10 @@
 Chamado pelo INICIAR.bat (Windows) ou iniciar.sh (Linux/macOS). Ele:
   1. instala/atualiza as bibliotecas (e o yt-dlp, que precisa de atualização frequente);
   2. na primeira vez, pergunta o token do bot e cria o arquivo .env;
-  3. liga o bot e abre o painel no navegador.
+  3. se você quiser compartilhar o painel, instala o cloudflared;
+  4. liga o bot e abre o painel no navegador.
 
-Só usa a biblioteca padrão do Python até o passo 3.
+Só usa a biblioteca padrão do Python até o passo 4.
 """
 from __future__ import annotations
 
@@ -13,7 +14,9 @@ import argparse
 import importlib.util
 import json
 import os
+import platform
 import secrets
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -26,6 +29,7 @@ ENV_FILE = BASE / ".env"
 REQUIREMENTS = BASE / "requirements.txt"
 PORTAL = "https://discord.com/developers/applications"
 INVITE_PERMISSIONS = 3165184  # Ver canais, Enviar mensagens, Inserir links, Conectar, Falar
+IS_WINDOWS = platform.system() == "Windows"
 
 
 def titulo(texto: str) -> None:
@@ -100,7 +104,7 @@ def checar_token(token: str) -> tuple[bool | None, dict]:
 
 
 def assistente(atual: dict[str, str]) -> dict[str, str]:
-    titulo("Configuração do spaceLimbo — passo 1 de 2: criar o bot no Discord")
+    titulo("Configuração do spaceLimbo — passo 1 de 3: criar o bot no Discord")
     print(
         "Isso é feito só uma vez:\n"
         "  1. Vou abrir o site do Discord para desenvolvedores (faça login se pedir).\n"
@@ -131,9 +135,18 @@ def assistente(atual: dict[str, str]) -> dict[str, str]:
             print(f"✔ Token certo! Seu bot se chama {info.get('username', 'spaceLimbo')}.")
         break
 
+    titulo("Passo 2 de 3: seus amigos vão usar o painel?")
+    print(
+        "O painel (a tela para organizar as músicas) abre neste computador.\n"
+        "Se quiser, crio um link na internet para seus amigos abrirem no PC ou celular deles.\n"
+        "(Os comandos /play no Discord funcionam para todo mundo de qualquer jeito.)"
+    )
+    compartilhar = perguntar_sim_nao("Criar o link para os amigos?", True)
+
     dados = {
         "DISCORD_TOKEN": token,
         "PANEL_TOKEN": atual.get("PANEL_TOKEN") or secrets.token_urlsafe(9),
+        "SHARE_PANEL": "1" if compartilhar else "0",
     }
     # mantém outros ajustes que a pessoa tenha colocado à mão
     for k, v in atual.items():
@@ -141,7 +154,7 @@ def assistente(atual: dict[str, str]) -> dict[str, str]:
     salvar_env(dados)
     print(f"✔ Configuração salva. Senha do painel: {dados['PANEL_TOKEN']}")
 
-    titulo("Passo 2 de 2: colocar o bot no seu servidor")
+    titulo("Passo 3 de 3: colocar o bot no seu servidor")
     if info.get("id"):
         convite = (
             f"https://discord.com/oauth2/authorize?client_id={info['id']}"
@@ -154,6 +167,29 @@ def assistente(atual: dict[str, str]) -> dict[str, str]:
         print("Quando o bot ligar, o link de convite vai aparecer nesta janela.")
     input("\nTudo certo! Aperte Enter para ligar o spaceLimbo…")
     return dados
+
+
+def garantir_cloudflared() -> bool:
+    sys.path.insert(0, str(BASE))
+    from tunnel import find_cloudflared  # importa só agora: config.py lê o .env recém-criado
+
+    if find_cloudflared():
+        return True
+    titulo("Instalando o cloudflared (cria o link do painel para os amigos)")
+    if IS_WINDOWS and shutil.which("winget"):
+        subprocess.run([
+            "winget", "install", "-e", "--id", "Cloudflare.cloudflared", "--silent",
+            "--accept-package-agreements", "--accept-source-agreements",
+        ])
+        if find_cloudflared():
+            print("✔ cloudflared instalado.")
+            return True
+    print(
+        "⚠ Não consegui instalar o cloudflared sozinho. O bot vai funcionar, mas o painel fica só neste PC.\n"
+        "  Para instalar à mão: https://developers.cloudflare.com/cloudflare-one/networks/connectors/"
+        "cloudflare-tunnel/downloads/"
+    )
+    return False
 
 
 def main() -> int:
@@ -176,7 +212,12 @@ def main() -> int:
 
     os.environ.setdefault("OPEN_BROWSER", "1")
     sys.path.insert(0, str(BASE))
-    import bot  # importa depois do .env existir
+    import config  # importa depois do .env existir
+
+    if config.SHARE_PANEL and not garantir_cloudflared():
+        config.SHARE_PANEL = False
+
+    import bot
 
     return bot.run()
 

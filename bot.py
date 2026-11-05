@@ -20,6 +20,7 @@ from discord.ext import commands, tasks
 import config
 import database
 from player import PlayerManager, Track, fmt_duration, search
+from tunnel import Tunnel
 from web import start_web
 
 log = logging.getLogger("spacelimbo")
@@ -46,6 +47,8 @@ class SpaceLimbo(commands.Bot):
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.players = PlayerManager(self)
         self.web_runner = None
+        self.tunnel = Tunnel()
+        self._tunnel_task: asyncio.Task | None = None
         self._welcomed = False
 
     async def setup_hook(self) -> None:
@@ -56,6 +59,23 @@ class SpaceLimbo(commands.Bot):
             await self.tree.sync(guild=guild)
         else:
             await self.tree.sync()
+        if config.SHARE_PANEL:
+            self._tunnel_task = asyncio.create_task(self.share_panel())
+
+    async def share_panel(self) -> None:
+        print("Abrindo o link público do painel para seus amigos…", flush=True)
+        url = await self.tunnel.start(config.PANEL_URL)
+        if not url:
+            print("⚠ Não consegui criar o link público. O painel continua funcionando no seu PC.", flush=True)
+            return
+        config.PUBLIC_URL = url
+        banner(
+            "LINK PARA SEUS AMIGOS (já entra com a senha):",
+            panel_link(url),
+            "",
+            "Esse link muda toda vez que você liga o spaceLimbo.",
+            "No Discord, /painel também mostra o link (sem a senha).",
+        )
 
     async def on_ready(self) -> None:
         log.info("Conectado como %s (%s servidores)", self.user, len(self.guilds))
@@ -77,6 +97,7 @@ class SpaceLimbo(commands.Bot):
             )
 
     async def close(self) -> None:
+        await self.tunnel.stop()
         if self.web_runner:
             await self.web_runner.cleanup()
         await super().close()
@@ -234,9 +255,11 @@ class Music(commands.Cog):
 
     @app_commands.command(name="painel", description="Link do painel web do spaceLimbo")
     async def painel(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            embed=simple_embed(f"🛰️ Painel: {config.PANEL_URL}"), ephemeral=True
-        )
+        if config.PUBLIC_URL:
+            text = f"🛰️ Painel: {config.PUBLIC_URL}\nA senha é com quem liga o bot."
+        else:
+            text = f"🛰️ Painel (só no PC onde o bot está ligado): {config.PANEL_URL}"
+        await interaction.response.send_message(embed=simple_embed(text), ephemeral=True)
 
     # ------------------------------------------------------------ playlists
 

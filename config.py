@@ -34,8 +34,11 @@ PANEL_PORT = int(os.environ.get("PANEL_PORT", "8080"))
 PANEL_TOKEN = os.environ.get("PANEL_TOKEN", "")  # senha do painel; vazio = sem senha (só use localmente!)
 PANEL_URL = os.environ.get("PANEL_URL", f"http://{PANEL_HOST}:{PANEL_PORT}")
 
-# Abrir o painel no navegador ao ligar (o INICIAR liga isso)
+# Compartilhar o painel na internet (Cloudflare Quick Tunnel) e abrir o navegador ao ligar
+SHARE_PANEL = os.environ.get("SHARE_PANEL", "0") == "1"
 OPEN_BROWSER = os.environ.get("OPEN_BROWSER", "0") == "1"
+CLOUDFLARED_PATH = os.environ.get("CLOUDFLARED_PATH", "")
+PUBLIC_URL = ""  # preenchido pelo túnel quando ele sobe
 
 
 def _find_ffmpeg() -> str:
