@@ -32,4 +32,7 @@ FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 DEFAULT_VOLUME = float(os.environ.get("DEFAULT_VOLUME", "0.5"))  # 0.0 a 1.5
 IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", "300"))  # segundos parado antes de sair do canal
 
+# Banco de dados (SQLite, já vem com o Python)
+DB_PATH = os.environ.get("DB_PATH", str(BASE_DIR / "spacelimbo.db"))
+
 EMBED_COLOR = 0x7B5CFF
