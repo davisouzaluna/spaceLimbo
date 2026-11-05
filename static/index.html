@@ -260,7 +260,7 @@ async function api(path, { method = "GET", body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) {
-    const t = prompt("Senha do painel (PANEL_TOKEN do .env):");
+    const t = prompt("Senha do painel (peça para quem liga o bot):");
     if (t === null) throw new Error("Sem token do painel.");
     TOKEN = t;
     localStorage.setItem("sl_token", t);
