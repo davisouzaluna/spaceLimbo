@@ -7,9 +7,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import sys
 import time
+import webbrowser
 from typing import Literal
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -21,6 +24,21 @@ from web import start_web
 
 log = logging.getLogger("spacelimbo")
 
+# Ver canais, Enviar mensagens, Inserir links, Conectar, Falar
+INVITE_PERMISSIONS = 3165184
+
+
+def panel_link(base: str) -> str:
+    """Link do painel com a senha embutida (o navegador guarda e apaga da barra de endereço)."""
+    return f"{base}/#senha={config.PANEL_TOKEN}" if config.PANEL_TOKEN else base
+
+
+def banner(*lines: str) -> None:
+    print("\n" + "=" * 64)
+    for line in lines:
+        print("  " + line)
+    print("=" * 64 + "\n", flush=True)
+
 
 class SpaceLimbo(commands.Bot):
     def __init__(self) -> None:
@@ -28,6 +46,7 @@ class SpaceLimbo(commands.Bot):
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.players = PlayerManager(self)
         self.web_runner = None
+        self._welcomed = False
 
     async def setup_hook(self) -> None:
         await self.add_cog(Music(self))
@@ -36,13 +55,26 @@ class SpaceLimbo(commands.Bot):
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
         else:
-            await self.tree.sync()  # global: pode levar alguns minutos para aparecer
-        self.web_runner = await start_web(self)
-        log.info("Painel em %s", config.PANEL_URL)
+            await self.tree.sync()
 
     async def on_ready(self) -> None:
         log.info("Conectado como %s (%s servidores)", self.user, len(self.guilds))
         await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/play"))
+        if not self._welcomed:
+            self._welcomed = True
+            invite = discord.utils.oauth_url(
+                self.user.id,
+                permissions=discord.Permissions(INVITE_PERMISSIONS),
+                scopes=("bot", "applications.commands"),
+            )
+            names = ", ".join(g.name for g in self.guilds) or "nenhum ainda"
+            banner(
+                f"{self.user.name} está ONLINE no Discord!",
+                f"Servidores: {names}",
+                "",
+                "Para colocar o bot em outro servidor, abra:",
+                invite,
+            )
 
     async def close(self) -> None:
         if self.web_runner:
@@ -303,14 +335,44 @@ class Music(commands.Cog):
 async def main() -> None:
     discord.utils.setup_logging(level=logging.INFO)
     if not config.TOKEN:
-        raise SystemExit("Defina DISCORD_TOKEN no arquivo .env (veja .env.example).")
+        raise SystemExit("Falta o token do bot. Rode o CONFIGURAR (ou preencha DISCORD_TOKEN no .env).")
     database.init()
     async with SpaceLimbo() as bot:
+        try:
+            bot.web_runner = await start_web(bot)
+        except OSError as exc:
+            raise SystemExit(
+                f"Não consegui abrir o painel na porta {config.PANEL_PORT} ({exc}).\n"
+                "O spaceLimbo já está aberto em outra janela?"
+            ) from None
+        banner(
+            "spaceLimbo ligando… (deixe esta janela aberta; feche-a para desligar)",
+            f"Painel neste PC: {config.PANEL_URL}",
+            f"Senha do painel: {config.PANEL_TOKEN or '(sem senha)'}",
+        )
+        if config.OPEN_BROWSER:
+            webbrowser.open(panel_link(config.PANEL_URL))
         await bot.start(config.TOKEN)
 
 
-if __name__ == "__main__":
+def run() -> int:
+    """Liga o bot e devolve um código de saída (0 = ok), com mensagens claras para os erros comuns."""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
+    except discord.LoginFailure:
+        print("\n✖ O Discord recusou o token do bot. Rode o CONFIGURAR e cole um token novo.")
+        return 1
+    except aiohttp.ClientConnectorError:
+        print("\n✖ Não consegui falar com o Discord. Confira sua internet e tente de novo.")
+        return 1
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            print(f"\n✖ {exc.code}")
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run())

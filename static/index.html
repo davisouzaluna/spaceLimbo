@@ -232,6 +232,15 @@ const fmt = (s) => {
 };
 
 let TOKEN = localStorage.getItem("sl_token") || "";
+// Link com a senha embutida (…/#senha=XYZ): guarda a senha e limpa a barra de endereço.
+{
+  const m = location.hash.match(/[#&]senha=([^&]+)/);
+  if (m) {
+    TOKEN = decodeURIComponent(m[1]);
+    localStorage.setItem("sl_token", TOKEN);
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+}
 let guilds = [], guildId = localStorage.getItem("sl_guild") || "";
 let state = null, stateAt = 0, lastQueueJson = "";
 let playlists = [], selPl = null, plTracks = [];
