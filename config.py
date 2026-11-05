@@ -34,6 +34,9 @@ PANEL_PORT = int(os.environ.get("PANEL_PORT", "8080"))
 PANEL_TOKEN = os.environ.get("PANEL_TOKEN", "")  # senha do painel; vazio = sem senha (só use localmente!)
 PANEL_URL = os.environ.get("PANEL_URL", f"http://{PANEL_HOST}:{PANEL_PORT}")
 
+# Abrir o painel no navegador ao ligar (o INICIAR liga isso)
+OPEN_BROWSER = os.environ.get("OPEN_BROWSER", "0") == "1"
+
 
 def _find_ffmpeg() -> str:
     """FFMPEG_PATH do .env → ffmpeg instalado no sistema → ffmpeg embutido do pacote imageio-ffmpeg."""
