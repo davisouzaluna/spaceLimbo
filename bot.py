@@ -1,4 +1,4 @@
-"""spaceLimbo — bot de música para Discord.
+"""spaceLimbo — bot de música para Discord com painel web.
 
 Execute:  python bot.py
 """
@@ -17,6 +17,7 @@ from discord.ext import commands, tasks
 import config
 import database
 from player import PlayerManager, Track, fmt_duration, search
+from web import start_web
 
 log = logging.getLogger("spacelimbo")
 
@@ -26,6 +27,7 @@ class SpaceLimbo(commands.Bot):
         intents = discord.Intents.default()  # inclui guilds e voice_states; nada privilegiado
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.players = PlayerManager(self)
+        self.web_runner = None
 
     async def setup_hook(self) -> None:
         await self.add_cog(Music(self))
@@ -35,10 +37,17 @@ class SpaceLimbo(commands.Bot):
             await self.tree.sync(guild=guild)
         else:
             await self.tree.sync()  # global: pode levar alguns minutos para aparecer
+        self.web_runner = await start_web(self)
+        log.info("Painel em %s", config.PANEL_URL)
 
     async def on_ready(self) -> None:
         log.info("Conectado como %s (%s servidores)", self.user, len(self.guilds))
         await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/play"))
+
+    async def close(self) -> None:
+        if self.web_runner:
+            await self.web_runner.cleanup()
+        await super().close()
 
 
 async def playlist_names(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -190,6 +199,12 @@ class Music(commands.Cog):
             return
         t = p.remove(posicao - 1)
         await interaction.response.send_message(embed=simple_embed(f"🗑️ Removida: **{t.title}**"))
+
+    @app_commands.command(name="painel", description="Link do painel web do spaceLimbo")
+    async def painel(self, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            embed=simple_embed(f"🛰️ Painel: {config.PANEL_URL}"), ephemeral=True
+        )
 
     # ------------------------------------------------------------ playlists
 
