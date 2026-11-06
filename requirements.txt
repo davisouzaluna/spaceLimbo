@@ -1,3 +1,4 @@
 discord.py[voice]>=2.7   # inclui aiohttp (painel), PyNaCl e davey (criptografia DAVE da voz)
+davey>=0.1.7,<0.2        # davey 0.2 deixa o bot mudo com o discord.py 2.7.1 (bug conhecido); remover quando sair a correção
 yt-dlp                   # busca e extrai o áudio
 imageio-ffmpeg           # traz o FFmpeg embutido: ninguém precisa instalar FFmpeg à mão
