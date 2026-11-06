@@ -1,4 +1,4 @@
-"""spaceLimbo — bot de música para Discord.
+"""spaceLimbo — bot de música para Discord com painel web.
 
 Execute:  python bot.py
 """
@@ -6,17 +6,39 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
+import sys
 import time
+import webbrowser
 from typing import Literal
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 import config
-from player import PlayerManager, fmt_duration, search
+import database
+from player import PlayerManager, Track, fmt_duration, search
+from tunnel import Tunnel
+from web import start_web
 
 log = logging.getLogger("spacelimbo")
+
+# Ver canais, Enviar mensagens, Inserir links, Conectar, Falar
+INVITE_PERMISSIONS = 3165184
+
+
+def panel_link(base: str) -> str:
+    """Link do painel com a senha embutida (o navegador guarda e apaga da barra de endereço)."""
+    return f"{base}/#senha={config.PANEL_TOKEN}" if config.PANEL_TOKEN else base
+
+
+def banner(*lines: str) -> None:
+    print("\n" + "=" * 64)
+    for line in lines:
+        print("  " + line)
+    print("=" * 64 + "\n", flush=True)
 
 
 class SpaceLimbo(commands.Bot):
@@ -24,6 +46,10 @@ class SpaceLimbo(commands.Bot):
         intents = discord.Intents.default()  # inclui guilds e voice_states; nada privilegiado
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.players = PlayerManager(self)
+        self.web_runner = None
+        self.tunnel = Tunnel()
+        self._tunnel_task: asyncio.Task | None = None
+        self._welcomed = False
 
     async def setup_hook(self) -> None:
         await self.add_cog(Music(self))
@@ -32,11 +58,58 @@ class SpaceLimbo(commands.Bot):
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
         else:
-            await self.tree.sync()  # global: pode levar alguns minutos para aparecer
+            await self.tree.sync()
+        if config.SHARE_PANEL:
+            self._tunnel_task = asyncio.create_task(self.share_panel())
+
+    async def share_panel(self) -> None:
+        print("Abrindo o link público do painel para seus amigos…", flush=True)
+        url = await self.tunnel.start(config.PANEL_URL)
+        if not url:
+            print("⚠ Não consegui criar o link público. O painel continua funcionando no seu PC.", flush=True)
+            return
+        config.PUBLIC_URL = url
+        banner(
+            "LINK PARA SEUS AMIGOS (já entra com a senha):",
+            panel_link(url),
+            "",
+            "Esse link muda toda vez que você liga o spaceLimbo.",
+            "No Discord, /painel também mostra o link (sem a senha).",
+        )
 
     async def on_ready(self) -> None:
         log.info("Conectado como %s (%s servidores)", self.user, len(self.guilds))
         await self.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="/play"))
+        if not self._welcomed:
+            self._welcomed = True
+            invite = discord.utils.oauth_url(
+                self.user.id,
+                permissions=discord.Permissions(INVITE_PERMISSIONS),
+                scopes=("bot", "applications.commands"),
+            )
+            names = ", ".join(g.name for g in self.guilds) or "nenhum ainda"
+            banner(
+                f"{self.user.name} está ONLINE no Discord!",
+                f"Servidores: {names}",
+                "",
+                "Para colocar o bot em outro servidor, abra:",
+                invite,
+            )
+
+    async def close(self) -> None:
+        await self.tunnel.stop()
+        if self.web_runner:
+            await self.web_runner.cleanup()
+        await super().close()
+
+
+async def playlist_names(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    current = current.lower()
+    return [
+        app_commands.Choice(name=p["name"], value=p["name"])
+        for p in database.list_playlists()
+        if current in p["name"].lower()
+    ][:25]
 
 
 def simple_embed(text: str) -> discord.Embed:
@@ -180,6 +253,86 @@ class Music(commands.Cog):
         t = p.remove(posicao - 1)
         await interaction.response.send_message(embed=simple_embed(f"🗑️ Removida: **{t.title}**"))
 
+    @app_commands.command(name="painel", description="Link do painel web do spaceLimbo")
+    async def painel(self, interaction: discord.Interaction):
+        if config.PUBLIC_URL:
+            text = f"🛰️ Painel: {config.PUBLIC_URL}\nA senha é com quem liga o bot."
+        else:
+            text = f"🛰️ Painel (só no PC onde o bot está ligado): {config.PANEL_URL}"
+        await interaction.response.send_message(embed=simple_embed(text), ephemeral=True)
+
+    # ------------------------------------------------------------ playlists
+
+    playlist = app_commands.Group(name="playlist", description="Playlists salvas do spaceLimbo")
+
+    @playlist.command(name="tocar", description="Coloca uma playlist salva na fila")
+    @app_commands.autocomplete(nome=playlist_names)
+    async def pl_tocar(self, interaction: discord.Interaction, nome: str, embaralhar: bool = False):
+        await interaction.response.defer(thinking=True)
+        pl = database.get_playlist_by_name(nome)
+        if not pl:
+            await interaction.followup.send(embed=simple_embed("Playlist não encontrada."))
+            return
+        rows = database.get_tracks(pl["id"])
+        if not rows:
+            await interaction.followup.send(embed=simple_embed("Essa playlist está vazia."))
+            return
+        if not await self.ensure_voice(interaction):
+            return
+        tracks = [Track.from_dict(r, interaction.user.display_name) for r in rows]
+        if embaralhar:
+            random.shuffle(tracks)
+        p = self.player(interaction)
+        p.add(tracks)
+        await interaction.followup.send(embed=simple_embed(f"📀 **{pl['name']}** — {len(tracks)} músicas na fila."))
+        await p.start_if_idle()
+
+    @playlist.command(name="listar", description="Lista as playlists salvas")
+    async def pl_listar(self, interaction: discord.Interaction):
+        pls = database.list_playlists()
+        text = "\n".join(f"• **{p['name']}** — {p['count']} músicas ({fmt_duration(p['duration'])})" for p in pls)
+        await interaction.response.send_message(embed=simple_embed(text or "Nenhuma playlist ainda. Crie pelo painel!"))
+
+    @playlist.command(name="criar", description="Cria uma playlist vazia")
+    async def pl_criar(self, interaction: discord.Interaction, nome: str):
+        try:
+            database.create_playlist(nome)
+        except ValueError as exc:
+            await interaction.response.send_message(embed=simple_embed(str(exc)), ephemeral=True)
+            return
+        await interaction.response.send_message(embed=simple_embed(f"✨ Playlist **{nome}** criada."))
+
+    @playlist.command(name="adicionar", description="Adiciona uma música (ou playlist do YouTube) a uma playlist")
+    @app_commands.autocomplete(nome=playlist_names)
+    async def pl_adicionar(self, interaction: discord.Interaction, nome: str, busca: str):
+        await interaction.response.defer(thinking=True)
+        pl = database.get_playlist_by_name(nome)
+        if not pl:
+            await interaction.followup.send(embed=simple_embed("Playlist não encontrada."))
+            return
+        tracks = await search(busca)
+        if not tracks:
+            await interaction.followup.send(embed=simple_embed("Nada encontrado."))
+            return
+        database.add_tracks(pl["id"], [t.to_dict() for t in tracks])
+        what = f"**{tracks[0].title}**" if len(tracks) == 1 else f"{len(tracks)} músicas"
+        await interaction.followup.send(embed=simple_embed(f"➕ {what} → **{pl['name']}**"))
+
+    @playlist.command(name="salvar_fila", description="Salva a música atual + fila como uma nova playlist")
+    async def pl_salvar_fila(self, interaction: discord.Interaction, nome: str):
+        p = self.player(interaction)
+        tracks = ([p.current] if p.current else []) + p.queue
+        if not tracks:
+            await interaction.response.send_message(embed=simple_embed("A fila está vazia."), ephemeral=True)
+            return
+        try:
+            pl = database.create_playlist(nome)
+        except ValueError as exc:
+            await interaction.response.send_message(embed=simple_embed(str(exc)), ephemeral=True)
+            return
+        database.add_tracks(pl["id"], [t.to_dict() for t in tracks])
+        await interaction.response.send_message(embed=simple_embed(f"💾 Fila salva como **{nome}** ({len(tracks)} músicas)."))
+
     # ------------------------------------------------------------ manutenção
 
     @tasks.loop(seconds=60)
@@ -205,13 +358,44 @@ class Music(commands.Cog):
 async def main() -> None:
     discord.utils.setup_logging(level=logging.INFO)
     if not config.TOKEN:
-        raise SystemExit("Defina DISCORD_TOKEN no arquivo .env (veja .env.example).")
+        raise SystemExit("Falta o token do bot. Rode o CONFIGURAR (ou preencha DISCORD_TOKEN no .env).")
+    database.init()
     async with SpaceLimbo() as bot:
+        try:
+            bot.web_runner = await start_web(bot)
+        except OSError as exc:
+            raise SystemExit(
+                f"Não consegui abrir o painel na porta {config.PANEL_PORT} ({exc}).\n"
+                "O spaceLimbo já está aberto em outra janela?"
+            ) from None
+        banner(
+            "spaceLimbo ligando… (deixe esta janela aberta; feche-a para desligar)",
+            f"Painel neste PC: {config.PANEL_URL}",
+            f"Senha do painel: {config.PANEL_TOKEN or '(sem senha)'}",
+        )
+        if config.OPEN_BROWSER:
+            webbrowser.open(panel_link(config.PANEL_URL))
         await bot.start(config.TOKEN)
 
 
-if __name__ == "__main__":
+def run() -> int:
+    """Liga o bot e devolve um código de saída (0 = ok), com mensagens claras para os erros comuns."""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
+    except discord.LoginFailure:
+        print("\n✖ O Discord recusou o token do bot. Rode o CONFIGURAR e cole um token novo.")
+        return 1
+    except aiohttp.ClientConnectorError:
+        print("\n✖ Não consegui falar com o Discord. Confira sua internet e tente de novo.")
+        return 1
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            print(f"\n✖ {exc.code}")
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(run())
