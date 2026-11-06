@@ -31,7 +31,16 @@ FFMPEG_BEFORE = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nost
 FFMPEG_OPTS = "-vn"  # descarta vídeo
 
 
+def fmt_time(seconds: int) -> str:
+    """Tempo no formato m:ss ou h:mm:ss (0 vira 0:00)."""
+    seconds = max(0, int(seconds or 0))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02}:{s:02}" if h else f"{m}:{s:02}"
+
+
 def fmt_duration(seconds: int) -> str:
+    """Duração de uma música: sem duração conhecida (0) significa transmissão ao vivo."""
     seconds = int(seconds or 0)
     if seconds <= 0:
         return "ao vivo"
@@ -306,7 +315,7 @@ class GuildPlayer:
             bar = "▬" * filled + "🔘" + "▬" * (16 - filled)
         e = discord.Embed(title=t.title, url=t.url, color=config.EMBED_COLOR)
         e.set_author(name="🪐 Tocando agora")
-        e.description = f"{bar}\n`{fmt_duration(pos)} / {fmt_duration(total)}`" if bar else None
+        e.description = f"{bar}\n`{fmt_time(pos)} / {fmt_duration(total)}`" if bar else None
         if t.thumbnail:
             e.set_thumbnail(url=t.thumbnail)
         loop_txt = {"off": "desligado", "track": "música", "queue": "fila"}[self.loop]
