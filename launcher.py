@@ -135,18 +135,25 @@ def assistente(atual: dict[str, str]) -> dict[str, str]:
             print(f"✔ Token certo! Seu bot se chama {info.get('username', 'spaceLimbo')}.")
         break
 
-    titulo("Passo 2 de 3: seus amigos vão usar o painel?")
+    titulo("Passo 2 de 3: quem vai usar o painel?")
     print(
         "O painel (a tela para organizar as músicas) abre neste computador.\n"
-        "Se quiser, crio um link na internet para seus amigos abrirem no PC ou celular deles.\n"
-        "(Os comandos /play no Discord funcionam para todo mundo de qualquer jeito.)"
+        "(Os comandos /play no Discord funcionam para todo mundo de qualquer jeito.)\n"
     )
-    compartilhar = perguntar_sim_nao("Criar o link para os amigos?", True)
+    rede = perguntar_sim_nao(
+        "Outros computadores ou celulares da SUA REDE (mesmo Wi-Fi/roteador) vão abrir o painel?",
+        atual.get("PANEL_HOST") == "0.0.0.0",
+    )
+    compartilhar = perguntar_sim_nao(
+        "Amigos em OUTRAS casas vão abrir o painel? (crio um link na internet)",
+        atual.get("SHARE_PANEL", "1") == "1",
+    )
 
     dados = {
         "DISCORD_TOKEN": token,
         "PANEL_TOKEN": atual.get("PANEL_TOKEN") or secrets.token_urlsafe(9),
         "SHARE_PANEL": "1" if compartilhar else "0",
+        "PANEL_HOST": "0.0.0.0" if rede else "127.0.0.1",
     }
     # mantém outros ajustes que a pessoa tenha colocado à mão
     for k, v in atual.items():

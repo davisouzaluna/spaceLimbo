@@ -270,7 +270,13 @@ def create_app(bot) -> web.Application:
 
 
 async def start_web(bot) -> web.AppRunner:
-    runner = web.AppRunner(create_app(bot))
+    if config.PANEL_LAN and not config.PANEL_TOKEN:
+        raise SystemExit(
+            "O painel está aberto para a rede (PANEL_HOST=0.0.0.0) mas está sem senha.\n"
+            "Defina PANEL_TOKEN no .env (ou rode o CONFIGURAR) antes de ligar."
+        )
+    # access_log=None: sem uma linha no terminal a cada atualização do painel (2 s por aba aberta)
+    runner = web.AppRunner(create_app(bot), access_log=None)
     await runner.setup()
     await web.TCPSite(runner, config.PANEL_HOST, config.PANEL_PORT).start()
     return runner

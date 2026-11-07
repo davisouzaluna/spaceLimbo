@@ -29,10 +29,33 @@ TOKEN = os.environ.get("DISCORD_TOKEN", "")
 DEV_GUILD_ID = int(os.environ.get("DEV_GUILD_ID", "0") or 0)
 
 # Painel web
+# 127.0.0.1 = só este PC · 0.0.0.0 = outros PCs da mesma rede também
 PANEL_HOST = os.environ.get("PANEL_HOST", "127.0.0.1")
+PANEL_LAN = PANEL_HOST in ("0.0.0.0", "::")
 PANEL_PORT = int(os.environ.get("PANEL_PORT", "8080"))
 PANEL_TOKEN = os.environ.get("PANEL_TOKEN", "")  # senha do painel; vazio = sem senha (só use localmente!)
-PANEL_URL = os.environ.get("PANEL_URL", f"http://{PANEL_HOST}:{PANEL_PORT}")
+# endereço para abrir NESTE PC (0.0.0.0 não é um endereço que o navegador abre)
+PANEL_URL = os.environ.get("PANEL_URL", f"http://{'127.0.0.1' if PANEL_LAN else PANEL_HOST}:{PANEL_PORT}")
+
+
+
+def lan_url() -> str | None:
+    """Endereço do painel para outros PCs da rede (ex.: http://192.168.0.10:8080)."""
+    if not PANEL_LAN:
+        return None
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 80))  # UDP não envia nada aqui: só descobre a placa de rede de saída
+            return f"http://{s.getsockname()[0]}:{PANEL_PORT}"
+    except OSError:
+        return None
+
+
+def running_in_wsl() -> bool:
+    import platform
+    return "microsoft" in platform.release().lower()
+
 
 # Compartilhar o painel na internet (Cloudflare Quick Tunnel) e abrir o navegador ao ligar
 SHARE_PANEL = os.environ.get("SHARE_PANEL", "0") == "1"
