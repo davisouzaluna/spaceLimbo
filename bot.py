@@ -255,10 +255,15 @@ class Music(commands.Cog):
 
     @app_commands.command(name="painel", description="Link do painel web do spaceLimbo")
     async def painel(self, interaction: discord.Interaction):
+        lan = config.lan_url()
         if config.PUBLIC_URL:
-            text = f"🛰️ Painel: {config.PUBLIC_URL}\nA senha é com quem liga o bot."
+            text = f"🛰️ Painel: {config.PUBLIC_URL}"
+        elif lan:
+            text = f"🛰️ Painel (na mesma rede do PC do bot): {lan}"
         else:
             text = f"🛰️ Painel (só no PC onde o bot está ligado): {config.PANEL_URL}"
+        if config.PANEL_TOKEN:
+            text += "\nA senha é com quem liga o bot."
         await interaction.response.send_message(embed=simple_embed(text), ephemeral=True)
 
     # ------------------------------------------------------------ playlists
@@ -368,11 +373,19 @@ async def main() -> None:
                 f"Não consegui abrir o painel na porta {config.PANEL_PORT} ({exc}).\n"
                 "O spaceLimbo já está aberto em outra janela?"
             ) from None
-        banner(
+        lines = [
             "spaceLimbo ligando… (deixe esta janela aberta; feche-a para desligar)",
             f"Painel neste PC: {config.PANEL_URL}",
             f"Senha do painel: {config.PANEL_TOKEN or '(sem senha)'}",
-        )
+        ]
+        lan = config.lan_url()
+        if lan:
+            lines += ["", "Outros PCs da mesma rede (Wi-Fi/cabo), já com a senha:", panel_link(lan)]
+            if config.running_in_wsl():
+                lines += ["⚠ No WSL esse endereço só funciona com networkingMode=mirrored no .wslconfig."]
+            else:
+                lines += ["Se o Windows perguntar, permita o acesso em 'Redes privadas'."]
+        banner(*lines)
         if config.OPEN_BROWSER:
             webbrowser.open(panel_link(config.PANEL_URL))
         await bot.start(config.TOKEN)

@@ -65,6 +65,19 @@ Veja também o [`COMO USAR.txt`](COMO%20USAR.txt).
 - Crie, renomeie e exclua playlists; **arraste para reordenar** a fila e as playlists
 - Link público opcional para amigos via **Cloudflare Quick Tunnel** (grátis, sem conta; muda a cada vez que o bot liga)
 
+### Abrir o painel em outros PCs
+
+| Quem vai abrir | Como ativar | Endereço |
+|---|---|---|
+| Só o PC do bot | padrão (`PANEL_HOST=127.0.0.1`) | http://127.0.0.1:8080 |
+| PCs e celulares da **mesma rede** (Wi-Fi/roteador) | `CONFIGURAR` → "Outros computadores da SUA REDE…" = **s** (ou `PANEL_HOST=0.0.0.0`) | aparece na janela do bot, ex.: `http://192.168.0.10:8080` |
+| Amigos em **outras casas** | `CONFIGURAR` → "Amigos em OUTRAS casas…" = **s** (`SHARE_PANEL=1`) | link `https://….trycloudflare.com` na janela do bot |
+
+- Fora do próprio PC o painel **exige senha** (`PANEL_TOKEN`); os links mostrados na janela já levam a senha.
+- **Windows:** na primeira vez, permita o Python no firewall em **Redes privadas** (e deixe a rede de casa como *Privada*).
+- **WSL:** o endereço da rede só funciona com `networkingMode=mirrored` no `%UserProfile%\.wslconfig` (depois `wsl --shutdown`).
+- Desempenho: o painel não registra cada atualização no terminal e para de consultar o bot quando a aba fica em segundo plano.
+
 ## Estrutura
 
 ```

@@ -299,7 +299,7 @@ $("#guild").onchange = (e) => {
 
 /* ---------------- estado / player ---------------- */
 async function refresh() {
-  if (!guildId) return;
+  if (!guildId || document.hidden) return;  // aba em segundo plano: não consulta o bot
   try {
     state = await api(`/api/guilds/${guildId}/state`);
     stateAt = Date.now();
@@ -522,7 +522,8 @@ $("#plSaveQueue").onclick = safe(async () => {
   await safe(loadPlaylists)();
   await refresh();
   setInterval(refresh, 2000);
-  setInterval(tick, 500);
+  setInterval(() => { if (!document.hidden) tick(); }, 500);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   setInterval(safe(loadGuilds), 60000);
 })();
 </script>
