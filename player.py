@@ -7,6 +7,7 @@ import random
 import re
 import time
 from dataclasses import asdict, dataclass
+from urllib.parse import parse_qs, urlparse
 
 import discord
 import yt_dlp
@@ -28,6 +29,11 @@ YDL_OPTS = {
 
 # -reconnect*: se o stream HTTP cair, o FFmpeg reconecta em vez de encerrar a música
 FFMPEG_BEFORE = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin"
+
+# ?t=90, &t=1m30s, #t=300, ?start=90 (YouTube e afins)
+LINK_TIME_RE = re.compile(r"[?&#](?:t|start|time_continue)=([0-9hms]+)", re.I)
+UNIT_RE = re.compile(r"(\d+)([hms])")
+UNIT_SECONDS = {"h": 3600, "m": 60, "s": 1}
 FFMPEG_OPTS = "-vn"  # descarta vídeo
 
 
@@ -37,6 +43,44 @@ def fmt_time(seconds: int) -> str:
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
     return f"{h}:{m:02}:{s:02}" if h else f"{m}:{s:02}"
+
+
+def parse_time(text: str) -> tuple[int, str]:
+    """Lê um momento digitado pela pessoa.
+
+    Aceita "90", "1:30", "1:02:03", "1m30s" e relativos "+30" / "-10".
+    Devolve (segundos, modo), com modo "abs", "+" ou "-".
+    """
+    text = text.strip().lower().replace(" ", "")
+    mode = "abs"
+    if text[:1] in "+-" and text[:1]:
+        mode, text = text[0], text[1:]
+    try:
+        if ":" in text:
+            seconds = 0
+            for part in text.split(":"):
+                seconds = seconds * 60 + int(part)
+        elif text.isdigit():
+            seconds = int(text)
+        else:
+            units = UNIT_RE.findall(text)
+            if not units or "".join(n + u for n, u in units) != text:
+                raise ValueError
+            seconds = sum(int(n) * UNIT_SECONDS[u] for n, u in units)
+    except ValueError:
+        raise ValueError("Não entendi o tempo. Exemplos: 1:30, 90, 5m, +30, -10") from None
+    return seconds, mode
+
+
+def link_start_time(url: str) -> int:
+    """Segundo inicial pedido no link (ex.: youtu.be/abc?t=300). 0 se não houver."""
+    m = LINK_TIME_RE.search(url)
+    if not m:
+        return 0
+    value = m.group(1).lower()
+    if value.isdigit():
+        return int(value)
+    return sum(int(n) * UNIT_SECONDS[u] for n, u in UNIT_RE.findall(value))
 
 
 def fmt_duration(seconds: int) -> str:
@@ -56,6 +100,7 @@ class Track:
     duration: int = 0
     thumbnail: str = ""
     requester: str = ""
+    start: int = 0     # segundo em que começa a tocar (vem do ?t= do link)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -68,6 +113,7 @@ class Track:
             duration=int(d.get("duration") or 0),
             thumbnail=d.get("thumbnail") or "",
             requester=requester or d.get("requester") or "",
+            start=int(d.get("start") or 0),
         )
 
 
@@ -108,8 +154,12 @@ def _search_sync(query: str, limit: int, allow_playlist: bool) -> list[dict]:
 
 async def search(query: str, *, limit: int = 1, requester: str = "", allow_playlist: bool = True) -> list[Track]:
     """Busca por texto ou link. yt-dlp é síncrono (bloqueante), então roda numa thread."""
-    entries = await asyncio.to_thread(_search_sync, query.strip(), limit, allow_playlist)
-    return [_entry_to_track(e, requester) for e in entries if (e.get("webpage_url") or e.get("url"))]
+    query = query.strip()
+    entries = await asyncio.to_thread(_search_sync, query, limit, allow_playlist)
+    tracks = [_entry_to_track(e, requester) for e in entries if (e.get("webpage_url") or e.get("url"))]
+    if len(tracks) == 1 and URL_RE.match(query):
+        tracks[0].start = link_start_time(query)
+    return tracks
 
 
 def _stream_sync(url: str) -> dict:
@@ -120,11 +170,20 @@ def _stream_sync(url: str) -> dict:
     return info
 
 
-async def resolve_stream(track: Track) -> str:
+def _stream_expiry(stream_url: str) -> float:
+    """Até quando o link do áudio vale. O YouTube informa no parâmetro expire=; senão, 30 min."""
+    try:
+        return float(parse_qs(urlparse(stream_url).query)["expire"][0])
+    except (KeyError, ValueError, IndexError):
+        return time.time() + 1800
+
+
+async def resolve_stream(track: Track) -> tuple[str, float]:
+    """Devolve (link do áudio, horário em que ele expira)."""
     info = await asyncio.to_thread(_stream_sync, track.url)
     track.duration = track.duration or int(info.get("duration") or 0)
     track.thumbnail = track.thumbnail or _thumb(info)
-    return info["url"]
+    return info["url"], _stream_expiry(info["url"])
 
 
 # ---------------------------------------------------------------- player por servidor
@@ -148,6 +207,11 @@ class GuildPlayer:
         self._started = 0.0
         self._paused_at: float | None = None
         self._paused_total = 0.0
+        # Cada vc.play() ganha um número. Ao avançar/voltar, o "after" da fonte antiga
+        # é ignorado (senão ele pularia para a próxima música).
+        self._gen = 0
+        # Link do áudio da música atual, reaproveitado no /seek sem rodar o yt-dlp de novo
+        self._stream: tuple[Track, str, float] | None = None
 
     # --- atalhos
     @property
@@ -210,31 +274,51 @@ class GuildPlayer:
             while self.queue:
                 track = self.queue.pop(0)
                 try:
-                    stream_url = await resolve_stream(track)
+                    stream_url = await self._stream_for(track)
                 except Exception as exc:  # vídeo removido, bloqueado por região etc.
                     log.warning("Falha ao resolver %s: %s", track.url, exc)
                     await self.announce(f"⚠️ Não consegui tocar **{track.title}** — pulando.")
                     continue
 
-                audio = discord.FFmpegPCMAudio(
-                    stream_url,
-                    executable=config.FFMPEG_PATH,
-                    before_options=FFMPEG_BEFORE,
-                    options=FFMPEG_OPTS,
-                )
-                source = discord.PCMVolumeTransformer(audio, volume=self.volume)
+                start, track.start = track.start, 0  # o ?t= do link vale só na primeira vez
+                if track.duration and start >= track.duration:
+                    start = 0
                 self.current = track
-                self._started, self._paused_at, self._paused_total = time.monotonic(), None, 0.0
                 self.last_activity = time.time()
-                vc.play(source, after=self._after)
+                self._start_source(vc, stream_url, start)
                 if prev is None or prev.url != track.url or self.loop != "track":
                     await self.announce(embed=self.now_playing_embed())
                 return
 
-    def _after(self, error: Exception | None) -> None:
-        # Chamado pelo discord.py numa THREAD separada quando a música termina.
+    async def _stream_for(self, track: Track) -> str:
+        """Link do áudio: reaproveita o da música atual se ainda não expirou."""
+        if self._stream and self._stream[0] is track and time.time() < self._stream[2] - 60:
+            return self._stream[1]
+        url, expires = await resolve_stream(track)
+        self._stream = (track, url, expires)
+        return url
+
+    def _start_source(self, vc: discord.VoiceClient, stream_url: str, offset: int = 0) -> None:
+        """Abre o FFmpeg já no segundo `offset` (-ss antes do -i: pula direto, sem baixar o começo)."""
+        before = f"-ss {offset} {FFMPEG_BEFORE}" if offset else FFMPEG_BEFORE
+        audio = discord.FFmpegPCMAudio(
+            stream_url,
+            executable=config.FFMPEG_PATH,
+            before_options=before,
+            options=FFMPEG_OPTS,
+        )
+        source = discord.PCMVolumeTransformer(audio, volume=self.volume)
+        self._gen += 1
+        gen = self._gen
+        self._started, self._paused_at, self._paused_total = time.monotonic() - offset, None, 0.0
+        vc.play(source, after=lambda error: self._after(error, gen))
+
+    def _after(self, error: Exception | None, gen: int) -> None:
+        # Chamado pelo discord.py numa THREAD separada quando a fonte de áudio termina.
         if error:
             log.error("Erro na reprodução: %s", error)
+        if gen != self._gen:
+            return  # fonte substituída por um /seek: não é o fim da música
         skipped, self._skip = self._skip, False
         asyncio.run_coroutine_threadsafe(self.play_next(skipped=skipped), self.bot.loop)
 
@@ -250,9 +334,32 @@ class GuildPlayer:
     def stop(self) -> None:
         self.queue.clear()
         self.current = None  # sem "atual", o _after não tem o que repetir
+        self._stream = None
         vc = self.vc
         if vc and (vc.is_playing() or vc.is_paused()):
             vc.stop()
+
+    async def seek(self, position: int) -> int:
+        """Vai para `position` segundos da música atual. Devolve a posição usada."""
+        track, vc = self.current, self.vc
+        if track is None or vc is None or not (vc.is_playing() or vc.is_paused()):
+            raise ValueError("Nada tocando.")
+        if not track.duration:
+            raise ValueError("Não dá para avançar numa transmissão ao vivo.")
+        position = max(0, min(int(position), track.duration - 1))
+        async with self._lock:
+            if self.current is not track:  # a música mudou enquanto esperava
+                raise ValueError("A música mudou; tente de novo.")
+            stream_url = await self._stream_for(track)
+            was_paused = vc.is_paused()
+            self._gen += 1  # invalida o "after" da fonte atual antes de pará-la
+            vc.stop()
+            self._start_source(vc, stream_url, position)
+            if was_paused:
+                vc.pause()
+                self._paused_at = time.monotonic()
+        self.last_activity = time.time()
+        return position
 
     def pause(self) -> bool:
         vc = self.vc
@@ -330,7 +437,7 @@ class GuildPlayer:
             "connected": connected,
             "channel": {"id": str(vc.channel.id), "name": vc.channel.name} if connected else None,
             "current": self.current.to_dict() if self.current else None,
-            "position": self.position,
+            "position": min(self.position, self.current.duration) if self.current and self.current.duration else self.position,
             "paused": bool(vc and vc.is_paused()),
             "volume": round(self.volume * 100),
             "loop": self.loop,
