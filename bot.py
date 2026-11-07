@@ -19,7 +19,7 @@ from discord.ext import commands, tasks
 
 import config
 import database
-from player import PlayerManager, Track, fmt_duration, search
+from player import PlayerManager, Track, fmt_duration, fmt_time, parse_time, search
 from tunnel import Tunnel
 from web import start_web
 
@@ -193,6 +193,26 @@ class Music(commands.Cog):
     async def resume(self, interaction: discord.Interaction):
         ok = self.player(interaction).resume()
         await interaction.response.send_message(embed=simple_embed("▶️ Continuando." if ok else "Nada pausado."))
+
+    @app_commands.command(name="seek", description="Vai para um momento da música (ex.: 5:00, 90, +30, -10)")
+    @app_commands.describe(tempo="5:00 vai para 5 min · +30 avança 30 s · -10 volta 10 s")
+    async def seek(self, interaction: discord.Interaction, tempo: str):
+        p = self.player(interaction)
+        try:
+            value, mode = parse_time(tempo)
+        except ValueError as exc:
+            await interaction.response.send_message(embed=simple_embed(str(exc)), ephemeral=True)
+            return
+        target = value if mode == "abs" else p.position + (value if mode == "+" else -value)
+        await interaction.response.defer()  # pode precisar renovar o link do áudio (1–2 s)
+        try:
+            pos = await p.seek(target)
+        except ValueError as exc:
+            await interaction.followup.send(embed=simple_embed(str(exc)))
+            return
+        icon = "⏪" if mode == "-" else "⏩"
+        total = p.current.duration if p.current else 0
+        await interaction.followup.send(embed=simple_embed(f"{icon} Em **{fmt_time(pos)}** de {fmt_duration(total)}"))
 
     @app_commands.command(name="stop", description="Para a música e limpa a fila")
     async def stop(self, interaction: discord.Interaction):

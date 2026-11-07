@@ -146,6 +146,12 @@ async def player_action(request):
         await p.start_if_idle()
     elif action == "skip":
         p.skip()
+    elif action == "seek":
+        if "offset" in data:  # relativo: +30 / -10
+            target = p.position + int(float(data["offset"]))
+        else:
+            target = int(float(data.get("position", 0)))
+        await p.seek(target)
     elif action == "pause":
         p.pause()
     elif action == "resume":
