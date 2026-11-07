@@ -176,9 +176,60 @@ def assistente(atual: dict[str, str]) -> dict[str, str]:
     return dados
 
 
+CLOUDFLARED_RELEASES = "https://github.com/cloudflare/cloudflared/releases/latest/download/"
+
+
+def _arquivo_cloudflared() -> str | None:
+    """Nome do arquivo certo para este sistema na página de versões do cloudflared."""
+    arq = platform.machine().lower()
+    arq = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64",
+           "armv7l": "arm", "armv6l": "arm", "i386": "386", "i686": "386"}.get(arq)
+    sistema = platform.system()
+    if not arq:
+        return None
+    if sistema == "Linux":
+        return f"cloudflared-linux-{arq}"
+    if sistema == "Darwin" and arq in ("amd64", "arm64"):
+        return f"cloudflared-darwin-{arq}.tgz"
+    if sistema == "Windows" and arq in ("amd64", "386"):
+        return f"cloudflared-windows-{arq}.exe"
+    return None
+
+
+def baixar_cloudflared(destino: Path) -> bool:
+    """Baixa o cloudflared para a pasta ferramentas/ do projeto (não precisa de sudo)."""
+    nome = _arquivo_cloudflared()
+    if not nome:
+        print(f"  Sistema não reconhecido ({platform.system()} {platform.machine()}).")
+        return False
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    temp = destino.with_name(destino.name + ".baixando")
+    print(f"  Baixando {nome}…")
+    try:
+        with urllib.request.urlopen(CLOUDFLARED_RELEASES + nome, timeout=60) as resp, temp.open("wb") as f:
+            shutil.copyfileobj(resp, f)
+        if nome.endswith(".tgz"):  # macOS vem compactado
+            import tarfile
+            with tarfile.open(temp) as tgz:
+                membro = next(m for m in tgz.getmembers() if m.name.endswith("cloudflared"))
+                with tgz.extractfile(membro) as src, destino.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+            temp.unlink()
+        else:
+            temp.replace(destino)
+        destino.chmod(0o755)
+        subprocess.run([str(destino), "--version"], check=True, capture_output=True, timeout=30)
+        return True
+    except Exception as exc:  # sem internet, GitHub bloqueado, arquivo corrompido…
+        print(f"  Falhou: {exc}")
+        for p in (temp, destino):
+            p.unlink(missing_ok=True)
+        return False
+
+
 def garantir_cloudflared() -> bool:
     sys.path.insert(0, str(BASE))
-    from tunnel import find_cloudflared  # importa só agora: config.py lê o .env recém-criado
+    from tunnel import LOCAL_CLOUDFLARED, find_cloudflared  # só agora: config.py lê o .env recém-criado
 
     if find_cloudflared():
         return True
@@ -191,6 +242,10 @@ def garantir_cloudflared() -> bool:
         if find_cloudflared():
             print("✔ cloudflared instalado.")
             return True
+    # Linux, WSL, macOS (ou Windows sem winget): baixa o programa direto para a pasta do bot
+    if baixar_cloudflared(LOCAL_CLOUDFLARED) and find_cloudflared():
+        print(f"✔ cloudflared instalado em {LOCAL_CLOUDFLARED.parent.name}/.")
+        return True
     print(
         "⚠ Não consegui instalar o cloudflared sozinho. O bot vai funcionar, mas o painel fica só neste PC.\n"
         "  Para instalar à mão: https://developers.cloudflare.com/cloudflare-one/networks/connectors/"

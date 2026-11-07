@@ -17,9 +17,14 @@ import config
 log = logging.getLogger("spacelimbo.tunnel")
 URL_RE = re.compile(rb"https://[a-z0-9-]+\.trycloudflare\.com")
 
+# onde o launcher.py baixa o cloudflared quando não dá para instalar pelo sistema
+LOCAL_CLOUDFLARED = Path(__file__).resolve().parent / "ferramentas" / (
+    "cloudflared.exe" if os.name == "nt" else "cloudflared"
+)
+
 
 def find_cloudflared() -> str | None:
-    candidates = [config.CLOUDFLARED_PATH, shutil.which("cloudflared")]
+    candidates = [config.CLOUDFLARED_PATH, shutil.which("cloudflared"), str(LOCAL_CLOUDFLARED)]
     local = os.environ.get("LOCALAPPDATA")
     if local:
         candidates.append(str(Path(local) / "Microsoft" / "WinGet" / "Links" / "cloudflared.exe"))

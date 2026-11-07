@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import queue
 import random
 import re
+import threading
 import time
 from dataclasses import asdict, dataclass
 from urllib.parse import parse_qs, urlparse
@@ -188,6 +190,56 @@ async def resolve_stream(track: Track) -> tuple[str, float]:
 
 # ---------------------------------------------------------------- player por servidor
 
+class BufferedAudio(discord.AudioSource):
+    """Lê o FFmpeg numa thread própria e guarda alguns segundos de folga.
+
+    O relógio do discord.py começa ANTES da primeira leitura: se o FFmpeg demora para
+    entregar o início (rede, PC ocupado), o bot depois manda os pacotes em rajada para
+    "recuperar o atraso" e o Discord toca acelerado. Com a folga cheia antes do play,
+    toda leitura é instantânea.
+    """
+    def __init__(self, source: discord.AudioSource, prebuffer: int = 50, maximo: int = 250):
+        self.source = source                    # 50 quadros = 1 s antes de tocar; até 5 s guardados
+        self._fila: queue.Queue[bytes] = queue.Queue(maximo)
+        self._pronto = threading.Event()
+        self._parar = threading.Event()
+        self._prebuffer = prebuffer
+        threading.Thread(target=self._encher, daemon=True).start()
+
+    def _encher(self) -> None:
+        while not self._parar.is_set():
+            try:
+                dado = self.source.read()
+            except Exception:  # FFmpeg encerrado no meio da leitura (skip/stop)
+                dado = b""
+            while not self._parar.is_set():
+                try:
+                    self._fila.put(dado, timeout=0.5)
+                    break
+                except queue.Full:
+                    continue
+            if not dado or self._fila.qsize() >= self._prebuffer:
+                self._pronto.set()
+            if not dado:
+                return
+
+    def esperar(self, timeout: float = 15) -> bool:
+        return self._pronto.wait(timeout)
+
+    def read(self) -> bytes:
+        try:
+            return self._fila.get(timeout=5)
+        except queue.Empty:
+            return b""  # FFmpeg travou de vez: encerra a música
+
+    def is_opus(self) -> bool:
+        return False
+
+    def cleanup(self) -> None:
+        self._parar.set()
+        self.source.cleanup()
+
+
 class GuildPlayer:
     """Uma fila independente para cada servidor (guild)."""
 
@@ -285,7 +337,10 @@ class GuildPlayer:
                     start = 0
                 self.current = track
                 self.last_activity = time.time()
-                self._start_source(vc, stream_url, start)
+                if not await self._start_source(vc, stream_url, start):
+                    self.current = None
+                    await self.announce(f"⚠️ **{track.title}** não começou a carregar — pulando.")
+                    continue
                 if prev is None or prev.url != track.url or self.loop != "track":
                     await self.announce(embed=self.now_playing_embed())
                 return
@@ -298,20 +353,31 @@ class GuildPlayer:
         self._stream = (track, url, expires)
         return url
 
-    def _start_source(self, vc: discord.VoiceClient, stream_url: str, offset: int = 0) -> None:
-        """Abre o FFmpeg já no segundo `offset` (-ss antes do -i: pula direto, sem baixar o começo)."""
+    async def _start_source(self, vc: discord.VoiceClient, stream_url: str, offset: int = 0) -> bool:
+        """Abre o FFmpeg já no segundo `offset` (-ss antes do -i: pula direto, sem baixar o começo).
+
+        Só começa a tocar com 1 s de áudio guardado (ver BufferedAudio). No /seek, a música
+        atual continua tocando enquanto o trecho novo carrega e a troca é feita de uma vez.
+        Devolve False se o áudio não começou a chegar.
+        """
         before = f"-ss {offset} {FFMPEG_BEFORE}" if offset else FFMPEG_BEFORE
-        audio = discord.FFmpegPCMAudio(
+        audio = BufferedAudio(discord.FFmpegPCMAudio(
             stream_url,
             executable=config.FFMPEG_PATH,
             before_options=before,
             options=FFMPEG_OPTS,
-        )
+        ))
+        if not await asyncio.to_thread(audio.esperar):
+            audio.cleanup()
+            return False
         source = discord.PCMVolumeTransformer(audio, volume=self.volume)
-        self._gen += 1
+        self._gen += 1  # invalida o "after" da fonte anterior antes de pará-la
         gen = self._gen
+        if vc.is_playing() or vc.is_paused():
+            vc.stop()
         self._started, self._paused_at, self._paused_total = time.monotonic() - offset, None, 0.0
         vc.play(source, after=lambda error: self._after(error, gen))
+        return True
 
     def _after(self, error: Exception | None, gen: int) -> None:
         # Chamado pelo discord.py numa THREAD separada quando a fonte de áudio termina.
@@ -352,9 +418,13 @@ class GuildPlayer:
                 raise ValueError("A música mudou; tente de novo.")
             stream_url = await self._stream_for(track)
             was_paused = vc.is_paused()
-            self._gen += 1  # invalida o "after" da fonte atual antes de pará-la
-            vc.stop()
-            self._start_source(vc, stream_url, position)
+            gen_antes = self._gen
+            self._gen += 1  # se a música acabar enquanto o trecho novo carrega, não pula de faixa
+            if not await self._start_source(vc, stream_url, position):
+                self._gen = gen_antes
+                if not (vc.is_playing() or vc.is_paused()):  # acabou durante a espera: segue a fila
+                    asyncio.get_running_loop().create_task(self.play_next())
+                raise ValueError("Não consegui carregar esse trecho; tente de novo.")
             if was_paused:
                 vc.pause()
                 self._paused_at = time.monotonic()
